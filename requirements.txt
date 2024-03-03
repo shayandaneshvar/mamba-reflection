@@ -1,0 +1,9 @@
+# requirements.txt
+
+opencv-python
+scikit-learn
+kornia
+scikit-image
+tensorboard
+dominate
+visdom

@@ -132,7 +132,8 @@ def vis(x):
 
 
 """tensorboard"""
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 
 
