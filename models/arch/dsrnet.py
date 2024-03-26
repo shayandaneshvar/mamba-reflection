@@ -3,7 +3,7 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 from models.arch.lrm import LRM
-
+from mamba_ssm import Mamba
 
 class LayerNormFunction(torch.autograd.Function):
 
@@ -45,7 +45,7 @@ class LayerNorm2d(nn.Module):
         return LayerNormFunction.apply(x, self.weight, self.bias, self.eps)
 
 
-class CABlock(nn.Module):
+class CABlock(nn.Module): # SCA
     def __init__(self, channels):
         super(CABlock, self).__init__()
         self.ca = nn.Sequential(
@@ -87,6 +87,77 @@ class DualStreamBlock(nn.Module):
     def forward(self, x, y):
         return self.seq(x), self.seq(y)
 
+class ImageMamba(nn.Module):
+    def __init__(self, channels, d_state=16, d_conv=4, expand=2):
+        super(ImageMamba, self).__init__()
+        self.mamba_model = Mamba( # This module uses roughly 3 * expand * d_model^2 parameters
+            d_model= channels, # Model dimension d_model
+            d_state=d_state,  # SSM state expansion factor
+            d_conv=d_conv,    # Local convolution width
+            expand=expand,    # Block expansion factor
+            )
+        self.channels = channels
+
+    def forward(self, x):
+        # Reshape input tensor to (batch_size, some_length, channels)
+        batch_size, _, width, height = x.size()
+        x = x.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, self.channels)
+        
+        # Forward pass through Mamba model
+        x = self.mamba_model(x)
+        
+        # Reshape output tensor back to (batch_size, channels, width, height)
+        x = x.view(batch_size, width, height, -1).permute(0, 3, 1, 2).contiguous()
+        
+        return x
+
+class MuGIMBlock(nn.Module):
+    def __init__(self, c, shared_b=False):
+        super().__init__()
+        self.block1 = DualStreamSeq(
+            DualStreamBlock(
+                ImageMamba(channels=c), # replace layerNorm and conv2d blocks
+                nn.Conv2d(c, c * 2, 3, padding=1, groups=c) # c * 2 -> c for inputs
+            ),
+            DualStreamGate(),
+            # DualStreamBlock(ImageMamba(channels=c)), # replace CA
+            DualStreamBlock(CABlock(c)),
+            DualStreamBlock(nn.Conv2d(c, c, 1))
+        )
+
+        self.a_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.a_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+        self.block2 = DualStreamSeq(
+            DualStreamBlock(
+                ImageMamba(channels=c, d_state=16), # replace layerNorm and conv2d blocks
+                nn.Conv2d(c, c * 2, 3, padding=1, groups=c) # c * 2 -> c for inputs
+            ),
+            DualStreamGate(),
+            DualStreamBlock(
+                nn.Conv2d(c, c, 1)
+            )
+
+        )
+    
+        self.shared_b = shared_b
+        if shared_b:
+            self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        else:
+            self.b_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+            self.b_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def forward(self, inp_l, inp_r):
+        x, y = self.block1(inp_l, inp_r)
+        x_skip, y_skip = inp_l + x * self.a_l, inp_r + y * self.a_r
+        x, y = self.block2(x_skip, y_skip)
+        if self.shared_b:
+            out_l, out_r = x_skip + x * self.b, y_skip + y * self.b
+        else:
+            out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
+        return out_l, out_r
+
+
 
 class MuGIBlock(nn.Module):
     def __init__(self, c, shared_b=False):
@@ -116,7 +187,7 @@ class MuGIBlock(nn.Module):
             )
 
         )
-
+        # WhAT IS THIS?
         self.shared_b = shared_b
         if shared_b:
             self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
@@ -286,6 +357,72 @@ class DSRNet(nn.Module):
         x, y = self.ending(x, y)
         return x, y, rr
 
+
+class MDSRNet(nn.Module):
+    def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
+                 enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
+        super().__init__()
+        self.intro = FeaturePyramidVGG(width, shared_b)
+        self.ending = DualStreamBlock(nn.Conv2d(width, out_channels, 3, padding=1))
+        self.encoders = nn.ModuleList()
+        self.decoders = nn.ModuleList()
+        self.middle_blks = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        self.downs = nn.ModuleList()
+        self.lrm = LRM(width)
+
+        c = width
+        for num in enc_blk_nums:
+            self.encoders.append(
+                DualStreamSeq(
+                    *[MuGIMBlock(c, shared_b) for _ in range(num)]
+                )
+            )
+            self.downs.append(
+                DualStreamBlock(
+                    nn.Conv2d(c, c * 2, 2, 2)
+                )
+            )
+            c *= 2
+
+        self.middle_blks = DualStreamSeq(
+            *[MuGIMBlock(c, shared_b) for _ in range(middle_blk_num)]
+        )
+
+        for num in dec_blk_nums:
+            self.ups.append(
+                DualStreamBlock(
+                    nn.Conv2d(c, c * 2, 1, bias=False),
+                    nn.PixelShuffle(2)
+                )
+            )
+            c //= 2
+
+            self.decoders.append(
+                DualStreamSeq(
+                    *[MuGIMBlock(c, shared_b) for _ in range(num)]
+                )
+            )
+
+    def forward(self, inp, feats_inp, fn=None):
+        *_, H, W = inp.shape
+        x, y = self.intro(inp, feats_inp)
+        encs = []
+        for encoder, down in zip(self.encoders, self.downs):
+            x, y = encoder(x, y)
+            encs.append((x, y))
+            x, y = down(x, y)
+
+        x, y = self.middle_blks(x, y)
+
+        for decoder, up, (enc_x_skip, enc_y_skip) in zip(self.decoders, self.ups, encs[::-1]):
+            x, y = up(x, y)
+            x, y = x + enc_x_skip, y + enc_y_skip
+            x, y = decoder(x, y)
+
+        rr = self.lrm(x, y)
+        x, y = self.ending(x, y)
+        return x, y, rr
 
 if __name__ == '__main__':
     x = torch.ones(1, 3, 224, 224).cuda()

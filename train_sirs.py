@@ -104,9 +104,9 @@ engine.model.opt.lambda_gan = 0
 # engine.model.opt.lambda_gan = 0.01
 set_learning_rate(opt.lr)
 
-while engine.epoch < 120:
-    if engine.epoch >= 20:
-        engine.model.opt.lambda_gan = 0.01  # gan loss is added after epoch
+while engine.epoch < 25:
+    # if engine.epoch >= 20:
+        # engine.model.opt.lambda_gan = 0.01  # gan loss is added after epoch
 
     print('random_seed: ', opt.seed)
     engine.train(train_dataloader_fusion)

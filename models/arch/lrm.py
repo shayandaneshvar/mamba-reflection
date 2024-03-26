@@ -95,7 +95,7 @@ class DualStreamBlock(nn.Module):
         return self.seq_l(x), self.seq_r(y)
 
 
-class R2Block(nn.Module):
+class R2Block(nn.Module): # MuGI
     def __init__(self, c):
         super().__init__()
         self.block1 = DualStreamSeq(
@@ -135,7 +135,7 @@ class R2Block(nn.Module):
         return out_l, out_r
 
 
-class SinBlock(nn.Module):
+class SinBlock(nn.Module): # NAF block
     def __init__(self, c):
         super().__init__()
         self.block1 = nn.Sequential(
