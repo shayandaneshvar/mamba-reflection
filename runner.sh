@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # sample
-# nohup ./run_training.sh dsrnet_m "Extra description here" > training.log 2>&1 &
+# extra desc ->  git addess
+# nohup ./runner.sh 1 dsrnet_m "Extra description here" > training_{dummy}.log 2>&1 &
 
 
 ## inets = dsrnet_l, dsrnet_m, mdsrnet_l,mdsrnet_m
