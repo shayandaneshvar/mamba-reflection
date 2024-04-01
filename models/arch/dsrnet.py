@@ -159,6 +159,54 @@ class MuGIMBlock(nn.Module):
 
 
 
+class MuGIM2Block(nn.Module):
+    def __init__(self, c, shared_b=False):
+        super().__init__()
+        self.block1 = DualStreamSeq(
+            DualStreamBlock(
+                LayerNorm2d(c),
+                nn.Conv2d(c, c * 2, 1),
+                nn.Conv2d(c * 2, c * 2, 3, padding=1, groups=c * 2)
+            ),
+            DualStreamGate(),
+            DualStreamBlock(ImageMamba(channels=c)),
+            DualStreamBlock(nn.Conv2d(c, c, 1))
+        )
+
+        self.a_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.a_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+        self.block2 = DualStreamSeq(
+            DualStreamBlock(
+                LayerNorm2d(c),
+                nn.Conv2d(c, c * 2, 1)
+            ),
+            DualStreamGate(),
+            DualStreamBlock(
+                nn.Conv2d(c, c, 1)
+            )
+
+        )
+        # WhAT IS THIS?
+        self.shared_b = shared_b
+        if shared_b:
+            self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        else:
+            self.b_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+            self.b_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def forward(self, inp_l, inp_r):
+        x, y = self.block1(inp_l, inp_r)
+        x_skip, y_skip = inp_l + x * self.a_l, inp_r + y * self.a_r
+        x, y = self.block2(x_skip, y_skip)
+        if self.shared_b:
+            out_l, out_r = x_skip + x * self.b, y_skip + y * self.b
+        else:
+            out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
+        return out_l, out_r
+
+
+
 class MuGIBlock(nn.Module):
     def __init__(self, c, shared_b=False):
         super().__init__()
@@ -375,7 +423,7 @@ class MDSRNet(nn.Module):
         for num in enc_blk_nums:
             self.encoders.append(
                 DualStreamSeq(
-                    *[MuGIMBlock(c, shared_b) for _ in range(num)]
+                    *[MuGIM2Block(c, shared_b) for _ in range(num)]
                 )
             )
             self.downs.append(
@@ -386,7 +434,7 @@ class MDSRNet(nn.Module):
             c *= 2
 
         self.middle_blks = DualStreamSeq(
-            *[MuGIMBlock(c, shared_b) for _ in range(middle_blk_num)]
+            *[MuGIM2Block(c, shared_b) for _ in range(middle_blk_num)]
         )
 
         for num in dec_blk_nums:
@@ -400,7 +448,7 @@ class MDSRNet(nn.Module):
 
             self.decoders.append(
                 DualStreamSeq(
-                    *[MuGIMBlock(c, shared_b) for _ in range(num)]
+                    *[MuGIM2Block(c, shared_b) for _ in range(num)]
                 )
             )
 
