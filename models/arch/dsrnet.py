@@ -339,6 +339,92 @@ class FeaturePyramidVGG(nn.Module):
         return f0_l, f0_r
 
 
+class MFeaturePyramidVGG(nn.Module):
+    def __init__(self, out_channels=64, shared_b=False):
+        super().__init__()
+        self.device = 'cuda'
+        self.block5 = DualStreamSeq(
+            MuGIM2Block(512, shared_b),
+            DualStreamBlock(nn.UpsamplingBilinear2d(scale_factor=2.0)),
+        )
+
+        self.block4 = DualStreamSeq(
+            MuGIM2Block(512, shared_b)
+        )
+
+        self.ch_map4 = DualStreamSeq(
+            DualStreamBlock(
+                nn.Conv2d(in_channels=1024, out_channels=1024, kernel_size=1),
+                nn.PixelShuffle(2)),
+            MuGIM2Block(256, shared_b)
+        )
+
+        self.block3 = DualStreamSeq(
+            MuGIM2Block(256, shared_b)
+        )
+
+        self.ch_map3 = DualStreamSeq(
+            DualStreamBlock(
+                nn.Conv2d(in_channels=512, out_channels=512, kernel_size=1),
+                nn.PixelShuffle(2)),
+            MuGIM2Block(128, shared_b)
+        )
+
+        self.block2 = DualStreamSeq(
+            MuGIM2Block(128, shared_b)
+        )
+
+        self.ch_map2 = DualStreamSeq(
+            DualStreamBlock(
+                nn.Conv2d(in_channels=256, out_channels=256, kernel_size=1),
+                nn.PixelShuffle(2)),
+            MuGIM2Block(64, shared_b)
+        )
+
+        self.block1 = DualStreamSeq(
+            MuGIM2Block(64, shared_b),
+        )
+
+        self.ch_map1 = DualStreamSeq(
+            DualStreamBlock(nn.Conv2d(in_channels=128, out_channels=128, kernel_size=1)),
+            MuGIM2Block(128, shared_b),
+            DualStreamBlock(nn.Conv2d(in_channels=128, out_channels=32, kernel_size=1)),
+            MuGIM2Block(32, shared_b),
+        )
+
+        self.block_intro = DualStreamSeq(
+            DualStreamBlock(nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1)),
+            MuGIM2Block(32, shared_b)
+        )
+
+        self.ch_map0 = DualStreamBlock(
+            nn.Conv2d(in_channels=64, out_channels=out_channels, kernel_size=1)
+        )
+
+    def forward(self, inp, vgg_feats):
+        # 64,128,256,512,512
+        vf1, vf2, vf3, vf4, vf5 = vgg_feats
+        # 512=>512,512=>512
+        f5_l, f5_r = self.block5(vf5)
+        f4_l, f4_r = self.block4(vf4)
+        f4_l, f4_r = self.ch_map4(torch.cat([f5_l, f4_l], dim=1), torch.cat([f5_r, f4_r], dim=1))
+        # 256 => 256
+        f3_l, f3_r = self.block3(vf3)
+        # (256+256,256+256)->(128,128)
+        f3_l, f3_r = self.ch_map3(torch.cat([f4_l, f3_l], dim=1), torch.cat([f4_r, f3_r], dim=1))
+        # (128+128,128+128)->(64,64)
+        f2_l, f2_r = self.block2(vf2)
+        f2_l, f2_r = self.ch_map2(torch.cat([f3_l, f2_l], dim=1), torch.cat([f3_r, f2_r], dim=1))
+        # (64+64,64+64)->(32,32)
+        f1_l, f1_r = self.block1(vf1)
+        f1_l, f1_r = self.ch_map1(torch.cat([f2_l, f1_l], dim=1), torch.cat([f2_r, f1_r], dim=1))
+        # 64
+        f0_l, f0_r = self.block_intro(inp, inp)
+        f0_l, f0_r = self.ch_map0(torch.cat([f1_l, f0_l], dim=1), torch.cat([f1_r, f0_r], dim=1))
+        return f0_l, f0_r
+
+
+
 class DSRNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
                  enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
@@ -471,6 +557,74 @@ class MDSRNet(nn.Module):
         rr = self.lrm(x, y)
         x, y = self.ending(x, y)
         return x, y, rr
+
+
+class MXDSRNet(nn.Module):
+    def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
+                 enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
+        super().__init__()
+        self.intro = MFeaturePyramidVGG(width, shared_b)
+        self.ending = DualStreamBlock(nn.Conv2d(width, out_channels, 3, padding=1))
+        self.encoders = nn.ModuleList()
+        self.decoders = nn.ModuleList()
+        self.middle_blks = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        self.downs = nn.ModuleList()
+        self.lrm = LRM(width)
+
+        c = width
+        for num in enc_blk_nums:
+            self.encoders.append(
+                DualStreamSeq(
+                    *[MuGIM2Block(c, shared_b) for _ in range(num)]
+                )
+            )
+            self.downs.append(
+                DualStreamBlock(
+                    nn.Conv2d(c, c * 2, 2, 2)
+                )
+            )
+            c *= 2
+
+        self.middle_blks = DualStreamSeq(
+            *[MuGIM2Block(c, shared_b) for _ in range(middle_blk_num)]
+        )
+
+        for num in dec_blk_nums:
+            self.ups.append(
+                DualStreamBlock(
+                    nn.Conv2d(c, c * 2, 1, bias=False),
+                    nn.PixelShuffle(2)
+                )
+            )
+            c //= 2
+
+            self.decoders.append(
+                DualStreamSeq(
+                    *[MuGIM2Block(c, shared_b) for _ in range(num)]
+                )
+            )
+
+    def forward(self, inp, feats_inp, fn=None):
+        *_, H, W = inp.shape
+        x, y = self.intro(inp, feats_inp)
+        encs = []
+        for encoder, down in zip(self.encoders, self.downs):
+            x, y = encoder(x, y)
+            encs.append((x, y))
+            x, y = down(x, y)
+
+        x, y = self.middle_blks(x, y)
+
+        for decoder, up, (enc_x_skip, enc_y_skip) in zip(self.decoders, self.ups, encs[::-1]):
+            x, y = up(x, y)
+            x, y = x + enc_x_skip, y + enc_y_skip
+            x, y = decoder(x, y)
+
+        rr = self.lrm(x, y)
+        x, y = self.ending(x, y)
+        return x, y, rr
+
 
 if __name__ == '__main__':
     x = torch.ones(1, 3, 224, 224).cuda()
