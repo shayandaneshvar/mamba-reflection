@@ -66,16 +66,6 @@ class DualStreamGate(nn.Module):
 class DualStreamMambaGate(nn.Module):
     def __init__(self, channels=3):
         super(DualStreamMambaGate, self).__init__()
-        self.mamba_1 = ImageMamba(channels=channels)
-        self.mamba_2 = ImageMamba(channels=channels)
-
-    def forward(self, x, y):        
-        return self.mamba_1(x) * self.mamba_2(y),  self.mamba_1(y) * self.mamba_2(x)
-
-
-class DualStreamMambaConvGate(nn.Module):
-    def __init__(self, channels=3):
-        super(DualStreamMambaGate, self).__init__()
         self.mamba = ImageMamba(channels=channels)
         self.conv = nn.Conv2d(channels, channels, 1)
         
@@ -231,9 +221,9 @@ class MuGIMGBlock(nn.Module):
             DualStreamBlock(
                 LayerNorm2d(c),
                 nn.Conv2d(c, c * 2, 1),
-                nn.Conv2d(c * 2, c * 2, 3, padding=1, groups=c * 2)
+                nn.Conv2d(c * 2, c, 3, padding=1, groups=c)
             ),
-            DualStreamMambaGate(c * 2),
+            DualStreamMambaGate(c),
             DualStreamBlock(CABlock(c)),
             DualStreamBlock(nn.Conv2d(c, c, 1))
         )
@@ -244,9 +234,9 @@ class MuGIMGBlock(nn.Module):
         self.block2 = DualStreamSeq(
             DualStreamBlock(
                 LayerNorm2d(c),
-                nn.Conv2d(c, c * 2, 1)
+                nn.Conv2d(c, c, 1)
             ),
-            DualStreamMambaGate(c * 2),
+            DualStreamMambaGate(c),
             DualStreamBlock(
                 nn.Conv2d(c, c, 1)
             )
