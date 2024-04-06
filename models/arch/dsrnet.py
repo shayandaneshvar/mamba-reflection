@@ -63,6 +63,25 @@ class DualStreamGate(nn.Module):
         y1, y2 = y.chunk(2, dim=1)
         return x1 * y2, y1 * x2
 
+class DualStreamMambaGate(nn.Module):
+    def __init__(self, channels=3):
+        super(DualStreamMambaGate, self).__init__()
+        self.mamba_1 = ImageMamba(channels=channels)
+        self.mamba_2 = ImageMamba(channels=channels)
+
+    def forward(self, x, y):        
+        return self.mamba_1(x) * self.mamba_2(y),  self.mamba_1(y) * self.mamba_2(x)
+
+
+class DualStreamMambaConvGate(nn.Module):
+    def __init__(self, channels=3):
+        super(DualStreamMambaGate, self).__init__()
+        self.mamba = ImageMamba(channels=channels)
+        self.conv = nn.Conv2d(channels, channels, 1)
+        
+    def forward(self, x, y):        
+        return self.mamba(x) * self.conv(y),  self.mamba(y) * self.conv(x)
+
 
 class DualStreamSeq(nn.Sequential):
     def forward(self, x, y=None):
@@ -205,6 +224,50 @@ class MuGIM2Block(nn.Module):
             out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
         return out_l, out_r
 
+class MuGIMGBlock(nn.Module):
+    def __init__(self, c, shared_b=False):
+        super().__init__()
+        self.block1 = DualStreamSeq(
+            DualStreamBlock(
+                LayerNorm2d(c),
+                nn.Conv2d(c, c * 2, 1),
+                nn.Conv2d(c * 2, c * 2, 3, padding=1, groups=c * 2)
+            ),
+            DualStreamMambaGate(),
+            DualStreamBlock(CABlock(c)),
+            DualStreamBlock(nn.Conv2d(c, c, 1))
+        )
+
+        self.a_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.a_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+        self.block2 = DualStreamSeq(
+            DualStreamBlock(
+                LayerNorm2d(c),
+                nn.Conv2d(c, c * 2, 1)
+            ),
+            DualStreamMambaGate(),
+            DualStreamBlock(
+                nn.Conv2d(c, c, 1)
+            )
+
+        )
+        self.shared_b = shared_b
+        if shared_b:
+            self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        else:
+            self.b_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+            self.b_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def forward(self, inp_l, inp_r):
+        x, y = self.block1(inp_l, inp_r)
+        x_skip, y_skip = inp_l + x * self.a_l, inp_r + y * self.a_r
+        x, y = self.block2(x_skip, y_skip)
+        if self.shared_b:
+            out_l, out_r = x_skip + x * self.b, y_skip + y * self.b
+        else:
+            out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
+        return out_l, out_r
 
 
 class MuGIBlock(nn.Module):
@@ -602,6 +665,72 @@ class MXDSRNet(nn.Module):
             self.decoders.append(
                 DualStreamSeq(
                     *[MuGIM2Block(c, shared_b) for _ in range(num)]
+                )
+            )
+
+    def forward(self, inp, feats_inp, fn=None):
+        *_, H, W = inp.shape
+        x, y = self.intro(inp, feats_inp)
+        encs = []
+        for encoder, down in zip(self.encoders, self.downs):
+            x, y = encoder(x, y)
+            encs.append((x, y))
+            x, y = down(x, y)
+
+        x, y = self.middle_blks(x, y)
+
+        for decoder, up, (enc_x_skip, enc_y_skip) in zip(self.decoders, self.ups, encs[::-1]):
+            x, y = up(x, y)
+            x, y = x + enc_x_skip, y + enc_y_skip
+            x, y = decoder(x, y)
+
+        rr = self.lrm(x, y)
+        x, y = self.ending(x, y)
+        return x, y, rr
+    
+class MGDSRNet(nn.Module):
+    def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
+                 enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
+        super().__init__()
+        self.intro = FeaturePyramidVGG(width, shared_b)
+        self.ending = DualStreamBlock(nn.Conv2d(width, out_channels, 3, padding=1))
+        self.encoders = nn.ModuleList()
+        self.decoders = nn.ModuleList()
+        self.middle_blks = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        self.downs = nn.ModuleList()
+        self.lrm = LRM(width)
+
+        c = width
+        for num in enc_blk_nums:
+            self.encoders.append(
+                DualStreamSeq(
+                    *[MuGIMGBlock(c, shared_b) for _ in range(num)]
+                )
+            )
+            self.downs.append(
+                DualStreamBlock(
+                    nn.Conv2d(c, c * 2, 2, 2)
+                )
+            )
+            c *= 2
+
+        self.middle_blks = DualStreamSeq(
+            *[MuGIMGBlock(c, shared_b) for _ in range(middle_blk_num)]
+        )
+
+        for num in dec_blk_nums:
+            self.ups.append(
+                DualStreamBlock(
+                    nn.Conv2d(c, c * 2, 1, bias=False),
+                    nn.PixelShuffle(2)
+                )
+            )
+            c //= 2
+
+            self.decoders.append(
+                DualStreamSeq(
+                    *[MuGIMGBlock(c, shared_b) for _ in range(num)]
                 )
             )
 
