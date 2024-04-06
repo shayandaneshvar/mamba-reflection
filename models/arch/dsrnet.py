@@ -233,7 +233,7 @@ class MuGIMGBlock(nn.Module):
                 nn.Conv2d(c, c * 2, 1),
                 nn.Conv2d(c * 2, c * 2, 3, padding=1, groups=c * 2)
             ),
-            DualStreamMambaGate(),
+            DualStreamMambaGate(c * 2),
             DualStreamBlock(CABlock(c)),
             DualStreamBlock(nn.Conv2d(c, c, 1))
         )
@@ -246,7 +246,7 @@ class MuGIMGBlock(nn.Module):
                 LayerNorm2d(c),
                 nn.Conv2d(c, c * 2, 1)
             ),
-            DualStreamMambaGate(),
+            DualStreamMambaGate(c * 2),
             DualStreamBlock(
                 nn.Conv2d(c, c, 1)
             )
