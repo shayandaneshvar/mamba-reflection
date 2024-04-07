@@ -3,6 +3,7 @@ from os.path import join
 
 import torch.backends.cuda
 import torch.backends.cudnn as cudnn
+import torch
 
 import data.sirs_dataset as datasets
 import util.util as util
@@ -10,6 +11,9 @@ from data.image_folder import read_fns
 from engine import Engine
 from options.net_options.train_options import TrainOptions
 from tools import mutils
+
+
+torch.cuda.empty_cache()
 
 opt = TrainOptions().parse()
 print(opt)

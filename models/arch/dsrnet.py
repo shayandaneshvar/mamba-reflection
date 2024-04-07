@@ -76,18 +76,18 @@ class DualStreamMambaGate(nn.Module):
 
 class DualStreamAttentionMambaGate(nn.Module):
     def __init__(self, channels=3):
-        super(DualStreamMambaGate, self).__init__()
-        self.mamba = ImageMamba(channels=channels)
+        super(DualStreamAttentionMambaGate, self).__init__()
+        self.mamba = ImageMamba(channels=channels) # channels = 2c
         self.softmax = nn.Softmax()
-        self.reducer_1 = nn.Conv2D(channels, channels//2, 1 , stride=1, padding=1)
-        self.reducer_2 = nn.Conv2D(channels, channels//2, 1 , stride=1, padding=1)
+        self.reducer_1 = nn.Conv2d(2* channels, channels//2, 1 , stride=1, padding=0)
+        self.reducer_2 = nn.Conv2d(2* channels, channels//2, 1 , stride=1, padding=0)
 
     def forward(self, x, y):      
-        pair = torch.concatenate(x, y)
-        pair_att = self.softmax(self.mamba(pair))
+        pair = torch.concatenate((x, y), dim=1) # 4c
+        pair_att = self.softmax(self.mamba(pair)) # 4c
         
         att_x = self.reducer_1(pair_att)
-        att_y = self.reducer_2(pair_att)
+        att_y = self.reducer_2(pair_att) # c
 
         x1, x2 = x.chunk(2, dim=1)
         y1, y2 = y.chunk(2, dim=1)
