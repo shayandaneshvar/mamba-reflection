@@ -71,7 +71,7 @@ def mgdsrnet_l(in_channels=3, out_channels=3, width=64):
                   shared_b=True)
 
 def mg2dsrnet_l(in_channels=3, out_channels=3, width=64):
-    enc_blks = [2, 2, 2, 2]
+    enc_blks = [2, 2, 2, 3]
     middle_blk_num = 2
     dec_blks = [2, 2, 2, 2]
     print("MG2DSRNET... 352")
