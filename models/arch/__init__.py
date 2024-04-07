@@ -1,6 +1,6 @@
 import torch
 
-from models.arch.dsrnet import DSRNet, MDSRNet, MXDSRNet, MGDSRNet
+from models.arch.dsrnet import DSRNet, MDSRNet, MXDSRNet, MGDSRNet, MG2DSRNet
 
 
 def dsrnet_s(in_channels=3, out_channels=3, width=32):
@@ -65,6 +65,17 @@ def mgdsrnet_l(in_channels=3, out_channels=3, width=64):
     dec_blks = [2, 2, 2, 2]
     print("MGDSRNET...")
     return MGDSRNet(in_channels, out_channels, width=width,
+                  middle_blk_num=middle_blk_num,
+                  enc_blk_nums=enc_blks,
+                  dec_blk_nums=dec_blks,
+                  shared_b=True)
+
+def mg2dsrnet_l(in_channels=3, out_channels=3, width=64):
+    enc_blks = [2, 2, 4, 8]
+    middle_blk_num = 12
+    dec_blks = [2, 2, 2, 2]
+    print("MG2DSRNET...")
+    return MG2DSRNet(in_channels, out_channels, width=width,
                   middle_blk_num=middle_blk_num,
                   enc_blk_nums=enc_blks,
                   dec_blk_nums=dec_blks,
