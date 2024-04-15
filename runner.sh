@@ -24,4 +24,4 @@ if [ -n "$extra_description" ]; then
 fi
 
 # Run the command with the provided parameters
-CUDA_VISIBLE_DEVICES="$gpu", python3 train_sirs.py --lr 0.0002 --inet "$inet" --model dsrnet_model_sirs --dataset sirs_dataset --loss losses --name "$inet" --lambda_vgg 0.01 --lambda_rec 0.2 --if_align --seed 2018 --base_dir "./dataset/reflection-removal/" --nEpochs 1
+CUDA_VISIBLE_DEVICES="$gpu", python3 train_sirs.py --lr 0.0001 --inet "$inet" --model dsrnet_model_sirs --dataset sirs_dataset --loss losses --name "$inet" --lambda_vgg 0.01 --lambda_rec 0.2 --if_align --seed 2018 --base_dir "./dataset/reflection-removal/" --nEpochs 1

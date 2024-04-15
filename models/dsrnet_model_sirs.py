@@ -13,6 +13,7 @@ import util.util as util
 from models import arch
 from .base_model import BaseModel
 from util.schedulers import LinearWarmupCosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, CosineAnnealingLR
 
 def tensor2im(image_tensor, imtype=np.uint8):
     image_tensor = image_tensor.detach()
@@ -172,7 +173,11 @@ class DSRNetModel(DSRNetBase):
             self.optimizer_G = torch.optim.AdamW(self.network.parameters(),
                                                 lr=opt.lr, betas=(0.9, 0.999), weight_decay=1e-2)
             
-            self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer_G, warmup_epochs=0, max_epochs=50)
+            # WARM_UP = 3
+            # self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer_G, warmup_epochs=WARM_UP, max_epochs=50)
+            self.scheduler = CosineAnnealingLR(self.optimizer_G, 300, eta_min=0.00001) # rem 7932 % 300 = 132 ( in every new epoch it will shift by 132 ~ 4/9 range)
+            
+            # print(f"Warmup is {WARM_UP}, LR is {self.optimizer_G.param_groups[0]['lr']}")
 
             # self.optimizer_G = torch.optim.Adam(self.network.parameters(),
             #                                     lr=opt.lr, betas=(0.9, 0.999), weight_decay=opt.wd)
@@ -219,13 +224,19 @@ class DSRNetModel(DSRNetBase):
         self.backward_G()
 
         self.optimizer_G.step()
+        if self.scheduler != None:
+            # before_lr = self.optimizer_G.param_groups[0]["lr"]
+            self.scheduler.step()
+            # after_lr = self.optimizer_G.param_groups[0]["lr"]
+            # print("AdamW.01 lr %.5f -> %.5f" % (before_lr, after_lr))
 
 
     def scheduler_step(self):
-        before_lr = self.optimizer_G.param_groups[0]["lr"]
-        self.scheduler.step()
-        after_lr = self.optimizer_G.param_groups[0]["lr"]
-        print("AdamW.01 lr %.4f -> %.4f" % (before_lr, after_lr))
+        if self.scheduler != None:
+            before_lr = self.optimizer_G.param_groups[0]["lr"]
+            self.scheduler.step()
+            after_lr = self.optimizer_G.param_groups[0]["lr"]
+            print("AdamW.01 lr %.5f -> %.5f" % (before_lr, after_lr))
     
     def get_current_errors(self):
         ret_errors = OrderedDict()
