@@ -62,6 +62,7 @@ class Engine(object):
 
             self.iterations += 1
 
+        model.scheduler_step()
         self.epoch += 1
 
         if not self.opt.no_log:

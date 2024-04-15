@@ -40,6 +40,9 @@ class BaseModel:
     def optimize_parameters(self):
         pass
 
+    def scheduler_step(self):
+        pass
+
     def get_current_visuals(self):
         return self.input
 

@@ -12,7 +12,7 @@ import util.index as index
 import util.util as util
 from models import arch
 from .base_model import BaseModel
-
+from util.schedulers import LinearWarmupCosineAnnealingLR
 
 def tensor2im(image_tensor, imtype=np.uint8):
     image_tensor = image_tensor.detach()
@@ -169,8 +169,13 @@ class DSRNetModel(DSRNetBase):
             self.loss_dic = losses.init_loss(opt)
             self.loss_dic['vgg'] = losses.VGGLoss(self.vgg)
             # initialize optimizers
-            self.optimizer_G = torch.optim.Adam(self.network.parameters(),
-                                                lr=opt.lr, betas=(0.9, 0.999), weight_decay=opt.wd)
+            self.optimizer_G = torch.optim.AdamW(self.network.parameters(),
+                                                lr=opt.lr, betas=(0.9, 0.999), weight_decay=1e-2)
+            
+            self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer_G, warmup_epochs=0, max_epochs=50)
+
+            # self.optimizer_G = torch.optim.Adam(self.network.parameters(),
+            #                                     lr=opt.lr, betas=(0.9, 0.999), weight_decay=opt.wd)
 
             self._init_optimizer([self.optimizer_G])
 
@@ -215,6 +220,13 @@ class DSRNetModel(DSRNetBase):
 
         self.optimizer_G.step()
 
+
+    def scheduler_step(self):
+        before_lr = self.optimizer_G.param_groups[0]["lr"]
+        self.scheduler.step()
+        after_lr = self.optimizer_G.param_groups[0]["lr"]
+        print("AdamW.01 lr %.4f -> %.4f" % (before_lr, after_lr))
+    
     def get_current_errors(self):
         ret_errors = OrderedDict()
         if self.loss_r_pixel is not None:

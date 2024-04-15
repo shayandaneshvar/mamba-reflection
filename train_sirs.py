@@ -108,7 +108,7 @@ engine.model.opt.lambda_gan = 0
 # engine.model.opt.lambda_gan = 0.01
 set_learning_rate(opt.lr)
 
-EPOCHS = 20
+EPOCHS = 25
 print(f"Epochs = {EPOCHS}")
 
 while engine.epoch < EPOCHS:
