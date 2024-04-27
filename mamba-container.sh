@@ -4,5 +4,6 @@ docker run -it --runtime=nvidia --name "mamba" -d -v /home/shayan/mamba-reflecti
 # if other modules were needed just create a new docker image from this
 
 # for opencv
+
 # apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
 # pip install requirements -r requirements.txt

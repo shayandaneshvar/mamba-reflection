@@ -179,8 +179,8 @@ class DSRNetModel(DSRNetBase):
             
             # print(f"Warmup is {WARM_UP}, LR is {self.optimizer_G.param_groups[0]['lr']}")
 
-            # self.optimizer_G = torch.optim.Adam(self.network.parameters(),
-            #                                     lr=opt.lr, betas=(0.9, 0.999), weight_decay=opt.wd)
+            # self.optimizer_G = torch.optim.Adam(self.network.parameters(),lr=opt.lr, betas=(0.9, 0.999), weight_decay=opt.wd)
+
 
             self._init_optimizer([self.optimizer_G])
 
@@ -216,6 +216,7 @@ class DSRNetModel(DSRNetBase):
         self.output_rr = output_rr
         return output_t, output_r, output_rr
 
+    # this is the forward pass, the scheduler is updated per iteration
     def optimize_parameters(self):
         self._train()
         self.forward()
@@ -224,6 +225,7 @@ class DSRNetModel(DSRNetBase):
         self.backward_G()
 
         self.optimizer_G.step()
+
         if self.scheduler != None:
             # before_lr = self.optimizer_G.param_groups[0]["lr"]
             self.scheduler.step()

@@ -1,6 +1,6 @@
 import torch
 
-from models.arch.dsrnet import DSRNet, MDSRNet, MXDSRNet, MGDSRNet, MG2DSRNet
+from models.arch.dsrnet import DSRNet, MDSRNet, MXDSRNet, MGDSRNet
 
 
 def dsrnet_s(in_channels=3, out_channels=3, width=32):
@@ -37,6 +37,13 @@ def dsrnet_m(in_channels=3, out_channels=3, width=64):
                   dec_blk_nums=dec_blks,
                   shared_b=True)
 
+
+# Our models are below
+
+# MDSRNet v1 used the same function, since it failed and there was no intuition behind
+# how Mamba was placed, I just updated the MDSRNet instead of writing a new one
+
+# M2DSRNet, numbers indicate the number of MuGI blocks - similar to DSRNet
 def mdsrnet_l(in_channels=3, out_channels=3, width=64):
     enc_blks = [2, 2, 4, 8]
     middle_blk_num = 12
@@ -48,6 +55,7 @@ def mdsrnet_l(in_channels=3, out_channels=3, width=64):
                   dec_blk_nums=dec_blks,
                   shared_b=True)
 
+# MXDSRNet
 def mxdsrnet_l(in_channels=3, out_channels=3, width=64):
     enc_blks = [2, 2, 4, 8]
     middle_blk_num = 12
@@ -59,34 +67,13 @@ def mxdsrnet_l(in_channels=3, out_channels=3, width=64):
                   dec_blk_nums=dec_blks,
                   shared_b=True)
 
+# MGDSRNet -> a failed model in the report - needs more work
 def mgdsrnet_l(in_channels=3, out_channels=3, width=64):
     enc_blks = [2, 2, 4, 8]
     middle_blk_num = 12
     dec_blks = [2, 2, 2, 2]
     print("MGDSRNET...")
     return MGDSRNet(in_channels, out_channels, width=width,
-                  middle_blk_num=middle_blk_num,
-                  enc_blk_nums=enc_blks,
-                  dec_blk_nums=dec_blks,
-                  shared_b=True)
-
-def mg2dsrnet_l(in_channels=3, out_channels=3, width=64):
-    enc_blks = [2, 2, 2, 3]
-    middle_blk_num = 2
-    dec_blks = [2, 2, 2, 2]
-    print("MG2DSRNET... 352")
-    return MG2DSRNet(in_channels, out_channels, width=width,
-                  middle_blk_num=middle_blk_num,
-                  enc_blk_nums=enc_blks,
-                  dec_blk_nums=dec_blks,
-                  shared_b=True)
-
-def mdsrnet_m(in_channels=3, out_channels=3, width=64):
-    enc_blks = [2, 2, 2, 2]
-    middle_blk_num = 4
-    dec_blks = [2, 2, 2, 2]
-
-    return MDSRNet(in_channels, out_channels, width=width,
                   middle_blk_num=middle_blk_num,
                   enc_blk_nums=enc_blks,
                   dec_blk_nums=dec_blks,

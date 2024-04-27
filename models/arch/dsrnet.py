@@ -63,36 +63,18 @@ class DualStreamGate(nn.Module):
         y1, y2 = y.chunk(2, dim=1)
         return x1 * y2, y1 * x2
 
+
+# Ours, This is used in the failed MGDSRNet and is a replacement for the yellow blocks
+# AKA MuGI mechanism. here G1 is Mamba and G2 is a point-wise convolution
 class DualStreamMambaGate(nn.Module):
     def __init__(self, channels=3):
         super(DualStreamMambaGate, self).__init__()
         self.mamba = ImageMamba(channels=channels)
         self.conv = nn.Conv2d(channels, channels, 1)
         
+    # Forward pass    
     def forward(self, x, y):        
         return self.mamba(x) * self.conv(y),  self.mamba(y) * self.conv(x)
-
-
-
-class DualStreamAttentionMambaGate(nn.Module):
-    def __init__(self, channels=3):
-        super(DualStreamAttentionMambaGate, self).__init__()
-        self.mamba = ImageMamba(channels=channels) # channels = 2c
-        self.softmax = nn.Softmax()
-        self.reducer_1 = nn.Conv2d(2* channels, channels//2, 1 , stride=1, padding=0)
-        self.reducer_2 = nn.Conv2d(2* channels, channels//2, 1 , stride=1, padding=0)
-
-    def forward(self, x, y):      
-        pair = torch.concatenate((x, y), dim=1) # 4c
-        pair_att = self.softmax(self.mamba(pair)) # 4c
-        
-        att_x = self.reducer_1(pair_att)
-        att_y = self.reducer_2(pair_att) # c
-
-        x1, x2 = x.chunk(2, dim=1)
-        y1, y2 = y.chunk(2, dim=1)
-
-        return att_x * x1 * y2, att_y * y1 * x2
 
 
 
@@ -119,6 +101,7 @@ class DualStreamBlock(nn.Module):
     def forward(self, x, y):
         return self.seq(x), self.seq(y)
 
+# Ours, ImageMamba wraps the original Mamba module
 class ImageMamba(nn.Module):
     def __init__(self, channels, d_state=16, d_conv=4, expand=2):
         super(ImageMamba, self).__init__()
@@ -130,6 +113,8 @@ class ImageMamba(nn.Module):
             )
         self.channels = channels
 
+    # forward pass, we make the input 1D by first puting the channel indices at the end (which is not necessary)
+    # feeding it to Mamba and then reshaping it back to the expected number of channels
     def forward(self, x):
         # Reshape input tensor to (batch_size, some_length, channels)
         batch_size, _, width, height = x.size()
@@ -143,6 +128,8 @@ class ImageMamba(nn.Module):
         
         return x
 
+# this is the module used in the failed MDSRNet v1, it is similar to MuGI
+# and also similar to MuGIM2 which is the one used in M2DSRNet
 class MuGIMBlock(nn.Module):
     def __init__(self, c, shared_b=False):
         super().__init__()
@@ -152,7 +139,6 @@ class MuGIMBlock(nn.Module):
                 nn.Conv2d(c, c * 2, 3, padding=1, groups=c) # c * 2 -> c for inputs
             ),
             DualStreamGate(),
-            # DualStreamBlock(ImageMamba(channels=c)), # replace CA
             DualStreamBlock(CABlock(c)),
             DualStreamBlock(nn.Conv2d(c, c, 1))
         )
@@ -171,7 +157,7 @@ class MuGIMBlock(nn.Module):
             )
 
         )
-    
+        # single or dual stream
         self.shared_b = shared_b
         if shared_b:
             self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
@@ -179,6 +165,7 @@ class MuGIMBlock(nn.Module):
             self.b_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
             self.b_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
+    # forward pass
     def forward(self, inp_l, inp_r):
         x, y = self.block1(inp_l, inp_r)
         x_skip, y_skip = inp_l + x * self.a_l, inp_r + y * self.a_r
@@ -190,7 +177,7 @@ class MuGIMBlock(nn.Module):
         return out_l, out_r
 
 
-
+# Module used in M2DSRNet instead fo MuGI. the only difference is that ImageMamba is used instead of CA module(SCA in the report)
 class MuGIM2Block(nn.Module):
     def __init__(self, c, shared_b=False):
         super().__init__()
@@ -201,7 +188,7 @@ class MuGIM2Block(nn.Module):
                 nn.Conv2d(c * 2, c * 2, 3, padding=1, groups=c * 2)
             ),
             DualStreamGate(),
-            DualStreamBlock(ImageMamba(channels=c)),
+            DualStreamBlock(ImageMamba(channels=c)), # replace CA with ImageMamba
             DualStreamBlock(nn.Conv2d(c, c, 1))
         )
 
@@ -219,7 +206,7 @@ class MuGIM2Block(nn.Module):
             )
 
         )
-        # WhAT IS THIS?
+        # Single or dual stream
         self.shared_b = shared_b
         if shared_b:
             self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
@@ -237,6 +224,9 @@ class MuGIM2Block(nn.Module):
             out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
         return out_l, out_r
 
+# The replacement for MuGI in the failed MGDSR model
+# DualSteamGate (which is the MuGI mechanism) is replaced with DualStreamMambaGate
+# to introduce non linearity with some processing 
 class MuGIMGBlock(nn.Module):
     def __init__(self, c, shared_b=False):
         super().__init__()
@@ -246,7 +236,7 @@ class MuGIMGBlock(nn.Module):
                 nn.Conv2d(c, c * 2, 1),
                 nn.Conv2d(c * 2, c, 3, padding=1, groups=c)
             ),
-            DualStreamMambaGate(c),
+            DualStreamMambaGate(c), # replace with DualStreamGate (Mugi mechanism)
             DualStreamBlock(CABlock(c)),
             DualStreamBlock(nn.Conv2d(c, c, 1))
         )
@@ -259,12 +249,13 @@ class MuGIMGBlock(nn.Module):
                 LayerNorm2d(c),
                 nn.Conv2d(c, c, 1)
             ),
-            DualStreamMambaGate(c),
+            DualStreamMambaGate(c), # replace with DualStreamGate (Mugi mechanism)
             DualStreamBlock(
                 nn.Conv2d(c, c, 1)
             )
 
         )
+        # single or dual stream
         self.shared_b = shared_b
         if shared_b:
             self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
@@ -282,55 +273,7 @@ class MuGIMGBlock(nn.Module):
             out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
         return out_l, out_r
 
-
-class MuGIMG2Block(nn.Module):
-    def __init__(self, c, shared_b=False):
-        super().__init__()
-        self.block1 = DualStreamSeq(
-            DualStreamBlock(
-                LayerNorm2d(c),
-                nn.Conv2d(c, c * 2, 1),
-                nn.Conv2d(c * 2, c * 2, 3, padding=1, groups=c * 2)
-            ),
-            DualStreamAttentionMambaGate(c * 2),
-            DualStreamBlock(CABlock(c)),
-            DualStreamBlock(nn.Conv2d(c, c, 1))
-        )
-
-        self.a_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-        self.a_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-
-        self.block2 = DualStreamSeq(
-            DualStreamBlock(
-                LayerNorm2d(c),
-                nn.Conv2d(c, c * 2, 1)
-            ),
-            DualStreamAttentionMambaGate(c * 2),
-            DualStreamBlock(
-                nn.Conv2d(c, c, 1)
-            )
-
-        )
-        self.shared_b = shared_b
-        if shared_b:
-            self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-        else:
-            self.b_l = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-            self.b_r = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
-
-
-    def forward(self, inp_l, inp_r):
-        x, y = self.block1(inp_l, inp_r)
-        x_skip, y_skip = inp_l + x * self.a_l, inp_r + y * self.a_r
-        x, y = self.block2(x_skip, y_skip)
-        if self.shared_b:
-            out_l, out_r = x_skip + x * self.b, y_skip + y * self.b
-        else:
-            out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
-        return out_l, out_r
-
-
-
+# Theirs, the original MuGI Block
 class MuGIBlock(nn.Module):
     def __init__(self, c, shared_b=False):
         super().__init__()
@@ -359,7 +302,7 @@ class MuGIBlock(nn.Module):
             )
 
         )
-        # WhAT IS THIS?
+        # Single or dual stream
         self.shared_b = shared_b
         if shared_b:
             self.b = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
@@ -377,7 +320,7 @@ class MuGIBlock(nn.Module):
             out_l, out_r = x_skip + x * self.b_l, y_skip + y * self.b_r
         return out_l, out_r
 
-
+# Theirs, the DSFNet
 class FeaturePyramidVGG(nn.Module):
     def __init__(self, out_channels=64, shared_b=False):
         super().__init__()
@@ -462,7 +405,7 @@ class FeaturePyramidVGG(nn.Module):
         f0_l, f0_r = self.ch_map0(torch.cat([f1_l, f0_l], dim=1), torch.cat([f1_r, f0_r], dim=1))
         return f0_l, f0_r
 
-
+# Ours, the DSFNet but with MuGIM2 blocks, used in MXDSRNet
 class MFeaturePyramidVGG(nn.Module):
     def __init__(self, out_channels=64, shared_b=False):
         super().__init__()
@@ -548,7 +491,7 @@ class MFeaturePyramidVGG(nn.Module):
         return f0_l, f0_r
 
 
-
+# Theirs, original DSRNet
 class DSRNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
                  enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
@@ -616,6 +559,7 @@ class DSRNet(nn.Module):
         return x, y, rr
 
 
+# ours, M2DSRNet (will change to MDSRNet v1 if MuGIM2Blocks are replaced with MuGIM2Blocks)
 class MDSRNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
                  enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
@@ -682,7 +626,7 @@ class MDSRNet(nn.Module):
         x, y = self.ending(x, y)
         return x, y, rr
 
-
+# Ours, MXDSRNet, note that aside from MuGIM2Blocks that are used in the UNetlike network (DSDNet), it also uses the MFeaturePyramid class which contains MuGIM2 blocks
 class MXDSRNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
                  enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
@@ -749,6 +693,7 @@ class MXDSRNet(nn.Module):
         x, y = self.ending(x, y)
         return x, y, rr
     
+# Ours, MGDSRNet, uses MUGIMG blocks in the DSDNEt
 class MGDSRNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
                  enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
@@ -815,72 +760,6 @@ class MGDSRNet(nn.Module):
         x, y = self.ending(x, y)
         return x, y, rr
 
-    
-class MG2DSRNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, width=48, middle_blk_num=1,
-                 enc_blk_nums=[], dec_blk_nums=[], shared_b=False):
-        super().__init__()
-        self.intro = FeaturePyramidVGG(width, shared_b)
-        self.ending = DualStreamBlock(nn.Conv2d(width, out_channels, 3, padding=1))
-        self.encoders = nn.ModuleList()
-        self.decoders = nn.ModuleList()
-        self.middle_blks = nn.ModuleList()
-        self.ups = nn.ModuleList()
-        self.downs = nn.ModuleList()
-        self.lrm = LRM(width)
-
-        c = width
-        for num in enc_blk_nums:
-            self.encoders.append(
-                DualStreamSeq(
-                    *[MuGIMG2Block(c, shared_b) for _ in range(num)]
-                )
-            )
-            self.downs.append(
-                DualStreamBlock(
-                    nn.Conv2d(c, c * 2, 2, 2)
-                )
-            )
-            c *= 2
-
-        self.middle_blks = DualStreamSeq(
-            *[MuGIMG2Block(c, shared_b) for _ in range(middle_blk_num)]
-        )
-
-        for num in dec_blk_nums:
-            self.ups.append(
-                DualStreamBlock(
-                    nn.Conv2d(c, c * 2, 1, bias=False),
-                    nn.PixelShuffle(2)
-                )
-            )
-            c //= 2
-
-            self.decoders.append(
-                DualStreamSeq(
-                    *[MuGIMG2Block(c, shared_b) for _ in range(num)]
-                )
-            )
-
-    def forward(self, inp, feats_inp, fn=None):
-        *_, H, W = inp.shape
-        x, y = self.intro(inp, feats_inp)
-        encs = []
-        for encoder, down in zip(self.encoders, self.downs):
-            x, y = encoder(x, y)
-            encs.append((x, y))
-            x, y = down(x, y)
-
-        x, y = self.middle_blks(x, y)
-
-        for decoder, up, (enc_x_skip, enc_y_skip) in zip(self.decoders, self.ups, encs[::-1]):
-            x, y = up(x, y)
-            x, y = x + enc_x_skip, y + enc_y_skip
-            x, y = decoder(x, y)
-
-        rr = self.lrm(x, y)
-        x, y = self.ending(x, y)
-        return x, y, rr
 
 
 if __name__ == '__main__':

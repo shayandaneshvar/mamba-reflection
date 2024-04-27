@@ -112,8 +112,6 @@ EPOCHS = 25
 print(f"Epochs = {EPOCHS}")
 
 while engine.epoch < EPOCHS:
-        # if engine.epoch >= 20:
-        # engine.model.opt.lambda_gan = 0.01  # gan loss is added after epoch
 
     print('random_seed: ', opt.seed)
     engine.train(train_dataloader_fusion)
