@@ -12,7 +12,6 @@ import util.index as index
 import util.util as util
 from models import arch
 from .base_model import BaseModel
-from util.schedulers import LinearWarmupCosineAnnealingLR
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, CosineAnnealingLR
 
 def tensor2im(image_tensor, imtype=np.uint8):
