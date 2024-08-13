@@ -1,11 +1,21 @@
-# Project ReadME
+# Single Image Reflection Removal with Mamba (S6: Structured State-Space Model for Sequences with Selective Scan)
+[Full Project Report](https://github.com/shayandaneshvar/mamba-reflection/blob/main/Single%20Image%20Reflection%20Removal%20with%20Mamba.pdf)
+## Summary
+Replicated the best SOTA Single Image Reflection Removal model (DSRNet), created an image-based version of a SOTA state-space model (Mamba/S6), and replaced attention-based modules of DSRNet with Mamba modules to improve the performance of the model. I also investigated the effect of the Cosine Annealing learning rate schedule and AdamW's weight decay. 
+
+## What I learned
+
+- MAMBA offers a bit of improvement, but not so much, and each Mamba Module has many parameters, making it relatively unstable at this point (early versions).
+- CosineAnnealling used with AdamW's Weight Decay is useful.
+
+## Project Details
 In this readme file we show the steps required to get the environment ready to run the modules. The project contains lots of files that weren't used, so in Section 1 we mention names of files that are used, and mentioned their purpose. We also indicate which files are completely ours, and which files were changed, and what was the change. Section II covers the steps required to get the project up and running.
 
 Download the full Dataset here: [Dataset](https://drive.google.com/file/d/1hFZItZAzAt-LnfNj-2phBRwqplDUasQy/view?usp=sharing) 
 
 Extra Note: as we discussed, only functions that we wrote should be commented, and so these are found in the files that were (changed) or (ours), indicated in section I. But if anything seemed vague I'm happy to explain it!
 
-## Section I, Description of important files
+### Section I, Description of important files
 
 - dummy.ipynb (ours): mostly code used to play around with Mamba and test various configurations. The only notable part is the last part where I have gathered the logs and used a piece of code to read those again to calculate the average SSIM and PSNR values, and also extract the best epochs of models.
 
@@ -43,7 +53,7 @@ arch folder in models(changed):
 
 -> Code I have added is very easy to read, and so I didn't try to overcomplicate things and just follow pytorch conventions of writing code, hence there wasn't much commenting required. Their code however has some unnecessary wrapping of models, etc. which may be confusing to the reader, which I can happily explain if needed as they don't have comments.
 
-## Section II, Running Guide
+### Section II, Running Guide
 
 Step 1: Environment
 Training should be done using Mamba container. Follow steps below:
